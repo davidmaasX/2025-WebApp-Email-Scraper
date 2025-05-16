@@ -57,28 +57,14 @@ export function InputSection({
     },
   });
   
-  // Update processing status as URLs are processed
-  useEffect(() => {
-    if (isProcessing && urls.length > 0) {
-      const currentIndex = processingStatus.current;
-      if (currentIndex < urls.length) {
-        setProcessingStatus({
-          isProcessing: true,
-          current: currentIndex + 1,
-          total: urls.length,
-          currentWebsite: urls[currentIndex] || "",
-        });
-      }
-    }
-  }, [processingStatus.current, isProcessing]);
+  // We don't need this effect as the server handles the processing now
+  // and the component was going into an infinite loop
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage("");
     
     try {
-      const validatedInput = urlInputSchema.parse({ urls: urlInput });
-      
       // Process URLs - split by newline or tab
       const urlsList = urlInput
         .split(/[\n\t]/)
@@ -86,7 +72,7 @@ export function InputSection({
         .filter(url => url.length > 0);
       
       if (urlsList.length === 0) {
-        setErrorMessage("Please enter at least one valid URL");
+        setErrorMessage("Please enter at least one URL");
         return;
       }
       
@@ -100,8 +86,6 @@ export function InputSection({
         total: urlsList.length,
         currentWebsite: urlsList[0],
       });
-      
-      setIsProcessing(true);
       
       // Start scraping
       scrapeEmails(urlsList);

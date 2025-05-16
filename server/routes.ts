@@ -67,7 +67,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       // Validate input
       const schema = z.object({
-        urls: z.array(z.string().url())
+        urls: z.array(z.string())
       });
       
       const { urls } = schema.parse(req.body);
@@ -82,8 +82,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Process URLs with timeout protection
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        const result = await processUrlWithTimeout(url);
-        results.push(result);
+        try {
+          // Basic URL validation
+          new URL(url.startsWith('http') ? url : `https://${url}`);
+          
+          const result = await processUrlWithTimeout(url);
+          results.push(result);
+          
+        } catch (urlError) {
+          // If URL is invalid, add it with empty emails
+          console.error(`Invalid URL format: ${url}`);
+          results.push({
+            website: url,
+            emails: []
+          });
+        }
       }
       
       return res.status(200).json(results);
@@ -91,7 +104,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error processing request:", error);
       if (error instanceof z.ZodError) {
-        return res.status(400).json({ message: "Invalid URL format provided" });
+        return res.status(400).json({ message: "Invalid input format provided" });
       }
       return res.status(500).json({ message: "An error occurred while processing your request" });
     }
