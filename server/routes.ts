@@ -5,6 +5,62 @@ import { urlInputSchema, emailResultSchema, csvResultSchema } from "@shared/sche
 import { z } from "zod";
 import { scrapeEmails } from "./scraper";
 
+/**
+ * Process a URL with timeout protection
+ */
+async function processUrlWithTimeout(url: string, timeoutMs = 6000): Promise<{website: string, emails: string[]}> {
+  return new Promise(async (resolve) => {
+    let isResolved = false;
+    let website = "";
+    
+    try {
+      // Extract domain from URL
+      website = new URL(url).hostname;
+    } catch {
+      // If URL parsing fails, use the raw URL
+      website = url;
+    }
+
+    // Set timeout to ensure we don't wait too long
+    const timeoutId = setTimeout(() => {
+      if (!isResolved) {
+        console.log(`Timeout exceeded for ${url}, moving to next URL`);
+        isResolved = true;
+        resolve({ website, emails: [] });
+      }
+    }, timeoutMs);
+
+    try {
+      // Scrape emails from the URL
+      const emails = await scrapeEmails(url);
+      
+      // Limit to 15 emails per website
+      const limitedEmails = emails.slice(0, 15);
+      
+      // Clear timeout and resolve if not already resolved
+      clearTimeout(timeoutId);
+      if (!isResolved) {
+        isResolved = true;
+        resolve({
+          website,
+          emails: limitedEmails
+        });
+      }
+    } catch (error) {
+      console.error(`Error processing URL ${url}:`, error);
+      // Clear timeout and resolve if not already resolved
+      clearTimeout(timeoutId);
+      if (!isResolved) {
+        isResolved = true;
+        resolve({
+          website,
+          emails: []
+        });
+      }
+    }
+  });
+}
+
 export async function registerRoutes(app: Express): Promise<Server> {
   // API endpoint for scraping emails from URLs
   app.post("/api/scrape", async (req, res) => {
@@ -23,31 +79,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Process each URL and collect results
       const results = [];
       
+      // Process URLs with timeout protection
       for (let i = 0; i < urls.length; i++) {
         const url = urls[i];
-        
-        try {
-          // Extract domain from URL
-          const domain = new URL(url).hostname;
-          
-          // Scrape emails from the URL
-          const emails = await scrapeEmails(url);
-          
-          // Limit to 15 emails per website
-          const limitedEmails = emails.slice(0, 15);
-          
-          results.push({
-            website: domain,
-            emails: limitedEmails
-          });
-          
-        } catch (error) {
-          console.error(`Error processing URL ${url}:`, error);
-          results.push({
-            website: url,
-            emails: []
-          });
-        }
+        const result = await processUrlWithTimeout(url);
+        results.push(result);
       }
       
       return res.status(200).json(results);

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
@@ -25,6 +25,8 @@ export function InputSection({
 }: InputSectionProps) {
   const [urlInput, setUrlInput] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+  const [urls, setUrls] = useState<string[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
   
   const { mutate: scrapeEmails, isPending } = useMutation({
     mutationFn: async (urls: string[]) => {
@@ -39,6 +41,7 @@ export function InputSection({
         total: 0,
         currentWebsite: "",
       });
+      setIsProcessing(false);
       setToast("Email scraping completed!", "success");
     },
     onError: (error: Error) => {
@@ -49,9 +52,25 @@ export function InputSection({
         total: 0,
         currentWebsite: "",
       });
+      setIsProcessing(false);
       setToast("Error: " + error.message, "error");
     },
   });
+  
+  // Update processing status as URLs are processed
+  useEffect(() => {
+    if (isProcessing && urls.length > 0) {
+      const currentIndex = processingStatus.current;
+      if (currentIndex < urls.length) {
+        setProcessingStatus({
+          isProcessing: true,
+          current: currentIndex + 1,
+          total: urls.length,
+          currentWebsite: urls[currentIndex] || "",
+        });
+      }
+    }
+  }, [processingStatus.current, isProcessing]);
   
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,26 +80,31 @@ export function InputSection({
       const validatedInput = urlInputSchema.parse({ urls: urlInput });
       
       // Process URLs - split by newline or tab
-      const urls = urlInput
+      const urlsList = urlInput
         .split(/[\n\t]/)
         .map(url => url.trim())
         .filter(url => url.length > 0);
       
-      if (urls.length === 0) {
+      if (urlsList.length === 0) {
         setErrorMessage("Please enter at least one valid URL");
         return;
       }
+      
+      // Set the processed URLs
+      setUrls(urlsList);
       
       // Initialize processing status
       setProcessingStatus({
         isProcessing: true,
         current: 0,
-        total: urls.length,
-        currentWebsite: urls[0],
+        total: urlsList.length,
+        currentWebsite: urlsList[0],
       });
       
+      setIsProcessing(true);
+      
       // Start scraping
-      scrapeEmails(urls);
+      scrapeEmails(urlsList);
       
     } catch (error) {
       if (error instanceof Error) {
@@ -92,6 +116,7 @@ export function InputSection({
   const handleClear = () => {
     setUrlInput("");
     setErrorMessage("");
+    setUrls([]);
     onResults([]);
   };
   

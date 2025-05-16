@@ -16,12 +16,12 @@ export async function scrapeEmails(url: string): Promise<string[]> {
       url = "https://" + url;
     }
     
-    // Fetch HTML content
+    // Fetch HTML content with a shorter timeout
     const response = await axios.get(url, {
       headers: {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
       },
-      timeout: 10000 // 10 seconds timeout
+      timeout: 5000 // 5 seconds timeout
     });
     
     const html = response.data;
@@ -29,11 +29,8 @@ export async function scrapeEmails(url: string): Promise<string[]> {
     // Extract emails from HTML content
     const emails = extractEmailsFromHTML(html);
     
-    // Extract links for potential future crawling (out of scope for now)
-    const $ = cheerio.load(html);
-    
-    // Return unique emails
-    return [...new Set(emails)];
+    // Return the emails (already deduped in extractEmailsFromHTML)
+    return emails;
     
   } catch (error) {
     console.error(`Error scraping ${url}:`, error);
@@ -44,7 +41,7 @@ export async function scrapeEmails(url: string): Promise<string[]> {
 /**
  * Extracts email addresses from HTML content
  * @param html HTML content
- * @returns Array of email addresses
+ * @returns Array of unique email addresses
  */
 function extractEmailsFromHTML(html: string): string[] {
   // Load HTML with cheerio
@@ -57,19 +54,37 @@ function extractEmailsFromHTML(html: string): string[] {
   const text = $("body").text();
   
   // Find email addresses using regex
-  const emails = text.match(EMAIL_REGEX) || [];
+  const emailsMatches = text.match(EMAIL_REGEX) || [];
+  
+  // Convert to regular array
+  const emails: string[] = [];
+  for (let i = 0; i < emailsMatches.length; i++) {
+    emails.push(emailsMatches[i]);
+  }
   
   // Also check 'mailto:' links
   $('a[href^="mailto:"]').each((_, element) => {
     const href = $(element).attr("href");
     if (href) {
       const email = href.replace("mailto:", "").trim().split("?")[0];
-      if (email.match(EMAIL_REGEX)) {
+      const match = email.match(EMAIL_REGEX);
+      if (match && match.length > 0) {
         emails.push(email);
       }
     }
   });
   
-  // Filter out duplicates and return
-  return [...new Set(emails)];
+  // Filter out duplicates
+  const uniqueEmailsSet = new Set<string>();
+  for (const email of emails) {
+    uniqueEmailsSet.add(email);
+  }
+  
+  // Convert set back to array
+  const uniqueEmails: string[] = [];
+  uniqueEmailsSet.forEach(email => {
+    uniqueEmails.push(email);
+  });
+  
+  return uniqueEmails;
 }
