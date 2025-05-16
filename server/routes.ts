@@ -7,21 +7,26 @@ import { scrapeEmails } from "./scraper";
 
 /**
  * Process a URL with timeout protection
+ * Uses advanced web scraping with multiple strategies
  */
-async function processUrlWithTimeout(url: string, timeoutMs = 6000): Promise<{website: string, emails: string[]}> {
+async function processUrlWithTimeout(url: string, timeoutMs = 15000): Promise<{website: string, emails: string[]}> {
   return new Promise(async (resolve) => {
     let isResolved = false;
     let website = "";
     
     try {
       // Extract domain from URL
-      website = new URL(url).hostname;
+      if (!url.startsWith("http://") && !url.startsWith("https://")) {
+        url = "https://" + url;
+      }
+      const urlObj = new URL(url);
+      website = urlObj.hostname;
     } catch {
       // If URL parsing fails, use the raw URL
       website = url;
     }
 
-    // Set timeout to ensure we don't wait too long
+    // Set timeout to ensure we don't wait too long for a single URL
     const timeoutId = setTimeout(() => {
       if (!isResolved) {
         console.log(`Timeout exceeded for ${url}, moving to next URL`);
@@ -31,11 +36,16 @@ async function processUrlWithTimeout(url: string, timeoutMs = 6000): Promise<{we
     }, timeoutMs);
 
     try {
-      // Scrape emails from the URL
+      console.log(`Starting advanced scraping for: ${url}`);
+      
+      // Use the advanced scraping function
       const emails = await scrapeEmails(url);
       
       // Limit to 15 emails per website
       const limitedEmails = emails.slice(0, 15);
+      
+      // Log successful scraping
+      console.log(`Found ${limitedEmails.length} emails for ${website}`);
       
       // Clear timeout and resolve if not already resolved
       clearTimeout(timeoutId);
