@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import { Header } from "@/components/Header";
 import { InputSection } from "@/components/InputSection";
 import { ResultsSection } from "@/components/ResultsSection";
@@ -20,31 +20,27 @@ export default function Home() {
     type: "success",
     visible: false,
   });
-  
-  const handleResults = (newResults: EmailResult[]) => {
+
+  const handleResults = useCallback((newResults: EmailResult[]) => {
     setResults(newResults);
-  };
-  
-  const handleToast = (message: string, type: "success" | "error") => {
+  }, []);
+
+  const handleToast = useCallback((message: string, type: "success" | "error") => {
     setToast({
       message,
       type,
       visible: true,
     });
-  };
-  
-  const handleCloseToast = () => {
+  }, []);
+
+  const handleCloseToast = useCallback(() => {
     setToast(prev => ({ ...prev, visible: false }));
-  };
-  
-  const handleDownload = () => {
+  }, []);
+
+  const handleDownload = useCallback(() => {
     handleToast("CSV downloaded successfully!", "success");
-  };
-  
-  const updateProcessingStatus = (status: ProcessingStatus) => {
-    setProcessingStatus(status);
-  };
-  
+  }, [handleToast]);
+
   return (
     <div className="bg-slate-50 min-h-screen font-sans text-slate-800">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -54,7 +50,7 @@ export default function Home() {
           <InputSection 
             onResults={handleResults}
             processingStatus={processingStatus}
-            setProcessingStatus={updateProcessingStatus}
+            setProcessingStatus={setProcessingStatus}
             setToast={handleToast}
           />
           

@@ -111,88 +111,83 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // GET /api/scrape-stream
-  app.get("/api/scrape-stream", async (req: Request, res: Response) => {
-    const jobId = req.query.jobId as string;
+  // In routes.ts, replace the /api/scrape-stream route with this:
 
-    if (!jobId) {
-      return res.status(400).json({ message: "Job ID is required." });
+// GET /api/scrape-stream
+app.get("/api/scrape-stream", async (req: Request, res: Response) => {
+  const jobId = req.query.jobId as string;
+
+  if (!jobId) {
+    return res.status(400).json({ message: "Job ID is required." });
+  }
+
+  const urls = jobStore.get(jobId);
+
+  if (!urls) {
+    return res.status(404).json({ message: "Job not found or has expired." });
+  }
+
+  try {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders();
+
+    const totalCount = urls.length;
+
+    for (let i = 0; i < urls.length; i++) {
+      const currentUrl = urls[i];
+      let dataObject;
+      try {
+        const normalizedProcessingUrl = currentUrl.startsWith("http") ? currentUrl : `https://${currentUrl}`;
+        const result = await processUrlWithTimeout(normalizedProcessingUrl);
+        
+        dataObject = {
+          website: result.website,
+          emails: result.emails,
+          processedCount: i + 1,
+          totalCount: totalCount,
+          currentWebsite: currentUrl,
+        };
+      } catch (urlProcessingError: any) {
+        console.error(`Error processing URL ${currentUrl} for job ${jobId}:`, urlProcessingError);
+        dataObject = {
+          website: currentUrl,
+          emails: [],
+          error: `Failed to process this URL: ${urlProcessingError.message || "Unknown error"}`,
+          processedCount: i + 1,
+          totalCount: totalCount,
+          currentWebsite: currentUrl,
+        };
+      }
+      res.write(`data: ${JSON.stringify(dataObject)}\n\n`);
+      res.flushHeaders();
     }
 
-    const urls = jobStore.get(jobId);
-
-    if (!urls) {
-      return res.status(404).json({ message: "Job not found or has expired." });
+    console.log(`Sending 'done' event for job ${jobId}`);
+    res.write(`event: done\ndata: {"message": "Scraping completed!"}\n\n`);
+    res.end();
+    console.log(`SSE connection closed for job ${jobId}`);
+  } catch (error) {
+    console.error(`Critical error in /api/scrape-stream for job ${jobId}:`, error);
+    if (res.headersSent && !res.writableEnded) {
+      try {
+        res.write(`event: error\ndata: {"message": "A critical server error occurred during streaming."}\n\n`);
+        res.end();
+      } catch (sseError) {
+        console.error(`Failed to send SSE error event for job ${jobId}:`, sseError);
+        if (!res.writableEnded) res.end();
+      }
+    } else if (!res.headersSent) {
+      return res.status(500).json({ message: "An unexpected server error occurred before streaming could start." });
     }
-
-    try {
-      // Set SSE headers
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      res.flushHeaders(); // Send headers immediately
-
-      const totalCount = urls.length;
-
-      for (let i = 0; i < urls.length; i++) {
-        const currentUrl = urls[i]; // This is the original URL from input
-        let dataObject;
-        try {
-          // processUrlWithTimeout expects a full URL or at least a hostname
-          const normalizedProcessingUrl = currentUrl.startsWith('http') ? currentUrl : `https://${currentUrl}`;
-          
-          const result = await processUrlWithTimeout(normalizedProcessingUrl);
-          
-          dataObject = {
-            website: result.website, // This is the processed hostname
-            emails: result.emails,
-            processedCount: i + 1,
-            totalCount: totalCount,
-            currentWebsite: currentUrl // Original URL for client reference
-          };
-          
-        } catch (urlProcessingError: any) {
-          console.error(`Error processing URL ${currentUrl} for job ${jobId}:`, urlProcessingError);
-          dataObject = {
-            website: currentUrl, 
-            emails: [],
-            error: `Failed to process this URL: ${urlProcessingError.message || 'Unknown error'}`,
-            processedCount: i + 1,
-            totalCount: totalCount,
-            currentWebsite: currentUrl
-          };
-        }
-        res.write(`data: ${JSON.stringify(dataObject)}\n\n`);
-      }
-
-      // After the loop completes, send a custom "done" event
-      res.write('event: done\ndata: {"message": "Scraping complete"}\n\n');
-      res.end(); // Close the connection
-
-    } catch (error) { // This is the top-level try-catch for the streaming logic
-      console.error(`Critical error in /api/scrape-stream for job ${jobId}:`, error);
-      // If headers have already been sent, we can't send a normal HTTP error response.
-      // We attempt to send an SSE error event.
-      if (res.headersSent && !res.writableEnded) {
-        try {
-          res.write('event: error\ndata: {"message": "A critical server error occurred during streaming."}\n\n');
-          res.end();
-        } catch (sseError) {
-          console.error(`Failed to send SSE error event for job ${jobId}:`, sseError);
-          if (!res.writableEnded) res.end(); // Ensure connection is closed
-        }
-      } else if (!res.headersSent) {
-         // Should not happen if jobId and urls checks passed, but as a fallback
-        return res.status(500).json({ message: "An unexpected server error occurred before streaming could start." });
-      }
-    } finally {
-      // Crucial: Delete the job from the store after stream, regardless of success or failure
-      if (jobStore.has(jobId)) {
-        jobStore.delete(jobId);
-        console.log(`Job ${jobId} completed and was deleted from store.`);
-      }
+  } finally {
+    if (jobStore.has(jobId)) {
+      jobStore.delete(jobId);
+      console.log(`Job ${jobId} completed and was deleted from store.`);
     }
-  });
+  }
+});
 
   // Original POST /api/scrape (reverted to non-SSE, batch processing)
   app.post("/api/scrape", async (req: Request, res: Response) => {

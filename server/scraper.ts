@@ -193,17 +193,16 @@ function extractEmailsFromHTML(html: string): string[] {
  * @returns The first email found, or null if no valid email is found
  */
 function extractFirstEmailSimple(htmlContent: string): string | null {
-  // EMAIL_REGEX is already defined globally in this file:
-  // const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  if (typeof htmlContent !== "string") {
+    console.warn("Invalid htmlContent type:", typeof htmlContent);
+    return null;
+  }
   const matches = htmlContent.match(EMAIL_REGEX);
-
   if (matches && matches.length > 0) {
     const firstMatch = matches[0];
-    // Basic validation to ensure it's a plausible email (though regex should handle this)
-    if (firstMatch.includes('@')) {
+    if (firstMatch.includes("@")) {
       return firstMatch;
     }
-    return null; // Should not happen if regex is correct
   }
   return null;
 }

@@ -1,15 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
-// import { useMutation } from "@tanstack/react-query"; // Removed
-import { apiRequest } from "@/lib/queryClient"; // Still useful for POST
+import { apiRequest } from "@/lib/queryClient";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-// ProcessingStatus is a component, ProcessingStatusType is the type
-import { ProcessingStatus as ProcessingStatusComponent } from "@/components/ProcessingStatus"; // Renamed import
+import { ProcessingStatus as ProcessingStatusComponent } from "@/components/ProcessingStatus";
 import { InstructionsCard } from "@/components/InstructionsCard";
-import { ProcessingStatus as ProcessingStatusType, EmailResult } from "@/lib/types"; // EmailResult is also in types.ts
-// import { EmailResult, urlInputSchema } from "@shared/schema"; // Using local type for now
+import { ProcessingStatus as ProcessingStatusType, EmailResult } from "@/lib/types";
 
 interface InputSectionProps {
   onResults: (results: EmailResult[]) => void;
@@ -26,16 +23,17 @@ export function InputSection({
 }: InputSectionProps) {
   const [urlInput, setUrlInput] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
-  // const [urls, setUrls] = useState<string[]>([]); // Not strictly needed if not used elsewhere
   const [eventSourceInstance, setEventSourceInstance] = useState<EventSource | null>(null);
   const [currentResults, setCurrentResults] = useState<EmailResult[]>([]);
   const [sseStreamSuccessfullyCompleted, setSseStreamSuccessfullyCompleted] = useState<boolean>(false);
+  const [messageQueue, setMessageQueue] = useState<any[]>([]);
+  const [processedEventIds, setProcessedEventIds] = useState<Set<string>>(new Set());
 
-  // Cleanup EventSource on component unmount
+  // Cleanup EventSource
   useEffect(() => {
     return () => {
       if (eventSourceInstance) {
-        console.log("Closing EventSource connection on component unmount.");
+        console.log("Closing EventSource connection on unmount.");
         eventSourceInstance.close();
         setEventSourceInstance(null);
       }
@@ -50,14 +48,55 @@ export function InputSection({
     }
   }, [eventSourceInstance]);
 
+  // Process queued onmessage updates
+  useEffect(() => {
+    if (messageQueue.length === 0) {
+      return;
+    }
+
+    const processMessage = () => {
+      const eventData = messageQueue[0];
+      console.log("Processing message from queue:", eventData);
+      // Only update isProcessing if not completed
+      setProcessingStatus({
+        isProcessing: !sseStreamSuccessfullyCompleted,
+        current: eventData.processedCount,
+        total: eventData.totalCount,
+        currentWebsite: eventData.currentWebsite || "",
+      });
+
+      const newSingleResult: EmailResult = {
+        website: eventData.website,
+        emails: eventData.emails,
+      };
+
+      if (eventData.error) {
+        console.warn(`Error for ${eventData.website}: ${eventData.error}`);
+      }
+
+      setCurrentResults((prevResults) => {
+        const updatedResults = [...prevResults, newSingleResult];
+        console.log("Updating results:", updatedResults);
+        onResults(updatedResults);
+        return updatedResults;
+      });
+
+      setMessageQueue((prev) => prev.slice(1));
+    };
+
+    const timeoutId = setTimeout(processMessage, 0);
+    return () => clearTimeout(timeoutId);
+  }, [messageQueue, onResults, setProcessingStatus, sseStreamSuccessfullyCompleted]);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setSseStreamSuccessfullyCompleted(false); // Reset the flag for the new session
+    setSseStreamSuccessfullyCompleted(false);
     setErrorMessage("");
-    setCurrentResults([]); // Reset results for a new submission
-    onResults([]); // Clear results in parent as well
+    setCurrentResults([]);
+    onResults([]);
+    setProcessedEventIds(new Set());
+    setMessageQueue([]);
 
-    // Process URLs - split by newline or tab
     const urlsList = urlInput
       .split(/[\n\t]/)
       .map((url) => url.trim())
@@ -68,18 +107,16 @@ export function InputSection({
       return;
     }
 
-    // Set initial processing status
     setProcessingStatus({
       isProcessing: true,
       current: 0,
       total: urlsList.length,
-      currentWebsite: urlsList[0] || "", // Handle empty list case
+      currentWebsite: urlsList[0] || "",
     });
 
     try {
-      // Step A: Initiate Scrape (POST request)
       const initiateResponse = await apiRequest("POST", "/api/initiate-scrape", { urls: urlsList });
-      
+
       if (!initiateResponse.ok) {
         const errorData = await initiateResponse.json().catch(() => ({ message: "Failed to initiate scraping job. Server returned an error." }));
         throw new Error(errorData.message || `Server error: ${initiateResponse.status}`);
@@ -91,85 +128,99 @@ export function InputSection({
         throw new Error("Failed to get Job ID from server.");
       }
 
-      // Step B: Start EventSource (GET request)
       const es = new EventSource(`/api/scrape-stream?jobId=${jobId}`);
-      setEventSourceInstance(es); // Store the instance
+      setEventSourceInstance(es);
 
       es.onopen = () => {
         console.log("SSE connection established with /api/scrape-stream");
         setToast("Scraping process started...", "success");
       };
 
-      es.onmessage = (event) => {
+      es.onmessage = (event: MessageEvent) => {
         try {
           const eventData = JSON.parse(event.data);
-          
-          // Update processing status
-          setProcessingStatus({
-            isProcessing: true, // Stays true until 'done' or 'error'
-            current: eventData.processedCount,
-            total: eventData.totalCount,
-            currentWebsite: eventData.currentWebsite || "",
-          });
-
-          // Accumulate results and update parent
-          const newSingleResult: EmailResult = { 
-            website: eventData.website, 
-            emails: eventData.emails,
-            // error: eventData.error // Assuming EmailResult can have an error field
-          };
-          if(eventData.error) {
-            console.warn(`Error for ${eventData.website}: ${eventData.error}`);
-            // Optionally add error to newSingleResult if your type supports it
-            // newSingleResult.error = eventData.error; 
-          }
-
-          setCurrentResults(prevResults => {
-            const updatedResults = [...prevResults, newSingleResult];
-            onResults(updatedResults); // Pass the full accumulated list
-            return updatedResults;
-          });
-
+          setMessageQueue((prev) => [...prev, eventData]);
         } catch (parseError) {
           console.error("Failed to parse SSE message data:", event.data, parseError);
         }
       };
 
-      es.addEventListener('done', (event) => {
-        setSseStreamSuccessfullyCompleted(true); // Set the flag on successful completion
-        closeEventSource();
-        console.log("SSE stream finished:", event);
+      es.addEventListener("done", (event: MessageEvent) => {
+        console.log("Received 'done' event:", event);
+        setSseStreamSuccessfullyCompleted(true);
         let doneMessage = "Scraping completed!";
         try {
-            const doneData = JSON.parse((event as MessageEvent).data);
-            if(doneData.message) doneMessage = doneData.message;
-        } catch(e) {/* use default message */}
+          const doneData = JSON.parse(event.data);
+          if (doneData.message) doneMessage = doneData.message;
+        } catch (e) {
+          console.warn("Failed to parse 'done' event data, using default message:", e);
+        }
 
         setToast(doneMessage, "success");
-        setProcessingStatus(prev => ({ ...prev, isProcessing: false, current: prev.total })); // Ensure current shows total
+        console.log("Setting processingStatus to completed:", {
+          isProcessing: false,
+          current: urlsList.length,
+          total: urlsList.length,
+          currentWebsite: "",
+        });
+        setProcessingStatus({
+          isProcessing: false,
+          current: urlsList.length,
+          total: urlsList.length,
+          currentWebsite: "",
+        });
+        // Wait for queue to process before closing
+        setTimeout(() => {
+          setMessageQueue([]); // Clear queue after processing
+          closeEventSource();
+        }, 500); // Increased delay to ensure all messages are processed
       });
 
-      es.onerror = (errorEvent) => {
-        setTimeout(() => {
-          if (sseStreamSuccessfullyCompleted) {
-            console.log('onerror timed out: sseStreamSuccessfullyCompleted is true, error ignored.');
-            closeEventSource();
-            return;
+      es.addEventListener("error", (event: MessageEvent) => {
+        console.log("Received server-sent 'error' event:", event);
+        if (!event.data || (event.lastEventId && processedEventIds.has(event.lastEventId))) {
+          console.log("Ignoring server-sent 'error' event with no data or duplicate ID:", event.lastEventId);
+          return;
+        }
+
+        try {
+          const errorData = JSON.parse(event.data);
+          if (event.lastEventId) {
+            setProcessedEventIds((prev) => new Set([...prev, event.lastEventId]));
           }
-
-          console.error("EventSource failed (reported after timeout):", errorEvent);
-          setToast("Error during scraping. Connection closed.", "error");
-          setProcessingStatus(prev => ({ ...prev, isProcessing: false }));
+          setToast(errorData.message || "Error during scraping.", "error");
+          setProcessingStatus((prev) => ({ ...prev, isProcessing: false }));
           closeEventSource();
-        }, 100);
-      };
+        } catch (e) {
+          console.error("Failed to parse server-sent error data:", e);
+          setProcessingStatus((prev) => ({ ...prev, isProcessing: false }));
+          closeEventSource();
+        }
+      });
 
+      es.onerror = (errorEvent: Event) => {
+        console.log("EventSource onerror triggered:", {
+          errorEvent,
+          sseStreamSuccessfullyCompleted,
+          eventSourceInstance: !!eventSourceInstance,
+          timestamp: new Date().toISOString(),
+        });
+        if (sseStreamSuccessfullyCompleted || !eventSourceInstance) {
+          console.log("Ignoring onerror: Stream completed or EventSource closed.");
+          closeEventSource();
+          return;
+        }
+        console.error("Unexpected connection error:", errorEvent);
+        setToast("Error during scraping. Connection closed.", "error");
+        setProcessingStatus((prev) => ({ ...prev, isProcessing: false }));
+        closeEventSource();
+      };
     } catch (error: any) {
       console.error("Error in handleSubmit:", error);
       setErrorMessage(error.message || "An unexpected error occurred.");
       setProcessingStatus(prev => ({ ...prev, isProcessing: false }));
       setToast(error.message || "Failed to start scraping.", "error");
-      closeEventSource(); // Ensure ES is closed if it was setup before error
+      closeEventSource();
     }
   };
 
@@ -199,7 +250,8 @@ export function InputSection({
               value={urlInput}
               onChange={(e) => setUrlInput(e.target.value)}
               className="w-full h-56 px-3 py-2 text-slate-700 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-              placeholder="example.com&#10;another-site.org"
+              placeholder="example.com
+another-site.org"
             />
             <p className="mt-1 text-sm text-slate-500">
               Enter hostnames (e.g., example.com) or full URLs.
