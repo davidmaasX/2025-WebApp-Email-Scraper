@@ -1,4 +1,6 @@
-import { EmailResult } from "@shared/schema";
+import { EmailResult as SharedEmailResult } from "@shared/schema"; // Import with an alias
+
+export type EmailResult = SharedEmailResult; // Define EmailResult as an alias for the imported type and export it
 
 export interface ProcessingStatus {
   isProcessing: boolean;
