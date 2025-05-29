@@ -42,6 +42,54 @@ const extractDomain = (url: string): string => {
 };
 
 /**
+ * Fetches the content of a given URL
+ * @param url URL to fetch
+ * @returns Object containing HTML content, status code, error, and duration
+ */
+async function fetchPageContent(url: string): Promise<{ html: string | null; statusCode: number | null; error: string | null; duration: number }> {
+  const startTime = Date.now();
+  try {
+    const response = await axios.get(url, {
+      timeout: 5000,
+      headers: {
+        "User-Agent": getRandomUserAgent(),
+      },
+    });
+    const endTime = Date.now();
+    return {
+      html: response.data,
+      statusCode: response.status,
+      error: null,
+      duration: endTime - startTime,
+    };
+  } catch (error: any) {
+    const endTime = Date.now();
+    if (error.code === 'ECONNABORTED') {
+      return {
+        html: null,
+        statusCode: null,
+        error: "Timeout",
+        duration: endTime - startTime,
+      };
+    }
+    if (error.response) {
+      return {
+        html: null,
+        statusCode: error.response.status,
+        error: `Fetch error: ${error.response.status}`,
+        duration: endTime - startTime,
+      };
+    }
+    return {
+      html: null,
+      statusCode: null,
+      error: `Fetch error: ${error.message}`,
+      duration: endTime - startTime,
+    };
+  }
+}
+
+/**
  * Searches a website for email-related results by crawling common paths
  */
 async function searchForEmails(domain: string): Promise<string[]> {
@@ -140,6 +188,27 @@ function extractEmailsFromHTML(html: string): string[] {
 }
 
 /**
+ * Extracts the first email address found in a raw HTML string using a simple regex match.
+ * @param htmlContent Raw HTML string
+ * @returns The first email found, or null if no valid email is found
+ */
+function extractFirstEmailSimple(htmlContent: string): string | null {
+  // EMAIL_REGEX is already defined globally in this file:
+  // const EMAIL_REGEX = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const matches = htmlContent.match(EMAIL_REGEX);
+
+  if (matches && matches.length > 0) {
+    const firstMatch = matches[0];
+    // Basic validation to ensure it's a plausible email (though regex should handle this)
+    if (firstMatch.includes('@')) {
+      return firstMatch;
+    }
+    return null; // Should not happen if regex is correct
+  }
+  return null;
+}
+
+/**
  * Crawls a website and all linked pages within the same domain to find email addresses
  */
 async function crawlWebsite(url: string, maxPages = 3): Promise<string[]> {
@@ -225,23 +294,42 @@ async function crawlWebsite(url: string, maxPages = 3): Promise<string[]> {
  * @returns Array of unique email addresses
  */
 export async function scrapeEmails(url: string): Promise<string[]> {
+  const normalizedUrl = normalizeUrl(url);
+  console.log(`Scraping single page: ${normalizedUrl}`);
+
   try {
-    const domain = extractDomain(url);
-    const allEmails = new Set<string>();
+    const fetchResult = await fetchPageContent(normalizedUrl);
 
-    // Direct website crawling
-    console.log(`Crawling website: ${url}`);
-    const crawlResults = await crawlWebsite(url);
-    crawlResults.forEach((email) => allEmails.add(email));
+    // Timeout check (Apps Script: if endTime - startTime > 5000)
+    if (fetchResult.error === "Timeout" || fetchResult.duration > 5000) {
+      console.log(`No email found for ${normalizedUrl} due to timeout.`);
+      return [];
+    }
 
-    // Crawl common paths for emails
-    console.log(`Searching for emails in common paths for domain: ${domain}`);
-    const searchResults = await searchForEmails(domain);
-    searchResults.forEach((email) => allEmails.add(email));
+    // Status code check or other fetch error
+    // if fetchResult.html is null, it implies an issue (e.g. non-200 status, or other critical fetch error)
+    if (!fetchResult.html) { // This covers statusCode !== 200 and other errors where HTML is not retrieved
+      console.log(`No email found for ${normalizedUrl} due to status code ${fetchResult.statusCode} or fetch error: ${fetchResult.error}`);
+      return [];
+    }
+    // Explicit status code check for clarity, though !fetchResult.html should cover it.
+    if (fetchResult.statusCode !== 200) {
+        console.log(`No email found for ${normalizedUrl} due to status code ${fetchResult.statusCode}.`);
+        return [];
+    }
 
-    return Array.from(allEmails);
+    // If HTML is present, try to extract email
+    const email = extractFirstEmailSimple(fetchResult.html);
+
+    if (email) {
+      return [email];
+    } else {
+      console.log(`No email found on page ${normalizedUrl}.`);
+      return [];
+    }
+
   } catch (error) {
-    console.error(`Error scraping ${url}:`, error);
+    console.error(`Error scraping ${normalizedUrl}:`, error);
     return [];
   }
 }
