@@ -137,6 +137,7 @@ export function InputSection({
 
       es.addEventListener('done', (event) => {
         setSseStreamSuccessfullyCompleted(true); // Set the flag on successful completion
+        closeEventSource();
         console.log("SSE stream finished:", event);
         let doneMessage = "Scraping completed!";
         try {
@@ -146,7 +147,6 @@ export function InputSection({
 
         setToast(doneMessage, "success");
         setProcessingStatus(prev => ({ ...prev, isProcessing: false, current: prev.total })); // Ensure current shows total
-        closeEventSource();
       });
 
       es.onerror = (errorEvent) => {
