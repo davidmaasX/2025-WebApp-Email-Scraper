@@ -29,6 +29,7 @@ export function InputSection({
   // const [urls, setUrls] = useState<string[]>([]); // Not strictly needed if not used elsewhere
   const [eventSourceInstance, setEventSourceInstance] = useState<EventSource | null>(null);
   const [currentResults, setCurrentResults] = useState<EmailResult[]>([]);
+  const [sseStreamSuccessfullyCompleted, setSseStreamSuccessfullyCompleted] = useState<boolean>(false);
 
   // Cleanup EventSource on component unmount
   useEffect(() => {
@@ -51,6 +52,7 @@ export function InputSection({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSseStreamSuccessfullyCompleted(false); // Reset the flag for the new session
     setErrorMessage("");
     setCurrentResults([]); // Reset results for a new submission
     onResults([]); // Clear results in parent as well
@@ -134,6 +136,7 @@ export function InputSection({
       };
 
       es.addEventListener('done', (event) => {
+        setSseStreamSuccessfullyCompleted(true); // Set the flag on successful completion
         console.log("SSE stream finished:", event);
         let doneMessage = "Scraping completed!";
         try {
@@ -147,6 +150,17 @@ export function InputSection({
       });
 
       es.onerror = (errorEvent) => {
+        if (sseStreamSuccessfullyCompleted) {
+          console.log('onerror triggered after successful completion, ignoring.');
+          // It's also good practice to ensure the EventSource is closed here too,
+          // just in case it wasn't closed by the 'done' event for some reason,
+          // though the 'done' event handler should already be closing it.
+          // However, the main purpose here is to prevent the error toast.
+          // The closeEventSource() call later in the original error handler will be skipped if we return.
+          // Let's ensure it's closed if we are ignoring the error:
+          closeEventSource(); // Assuming closeEventSource is accessible and idempotent.
+          return;
+        }
         console.error("EventSource failed:", errorEvent);
         setToast("Error during scraping. Connection closed.", "error");
         setProcessingStatus(prev => ({ ...prev, isProcessing: false }));
