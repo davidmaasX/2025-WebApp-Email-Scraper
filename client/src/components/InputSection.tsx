@@ -150,21 +150,18 @@ export function InputSection({
       });
 
       es.onerror = (errorEvent) => {
-        if (sseStreamSuccessfullyCompleted) {
-          console.log('onerror triggered after successful completion, ignoring.');
-          // It's also good practice to ensure the EventSource is closed here too,
-          // just in case it wasn't closed by the 'done' event for some reason,
-          // though the 'done' event handler should already be closing it.
-          // However, the main purpose here is to prevent the error toast.
-          // The closeEventSource() call later in the original error handler will be skipped if we return.
-          // Let's ensure it's closed if we are ignoring the error:
-          closeEventSource(); // Assuming closeEventSource is accessible and idempotent.
-          return;
-        }
-        console.error("EventSource failed:", errorEvent);
-        setToast("Error during scraping. Connection closed.", "error");
-        setProcessingStatus(prev => ({ ...prev, isProcessing: false }));
-        closeEventSource();
+        setTimeout(() => {
+          if (sseStreamSuccessfullyCompleted) {
+            console.log('onerror timed out: sseStreamSuccessfullyCompleted is true, error ignored.');
+            closeEventSource();
+            return;
+          }
+
+          console.error("EventSource failed (reported after timeout):", errorEvent);
+          setToast("Error during scraping. Connection closed.", "error");
+          setProcessingStatus(prev => ({ ...prev, isProcessing: false }));
+          closeEventSource();
+        }, 100);
       };
 
     } catch (error: any) {
