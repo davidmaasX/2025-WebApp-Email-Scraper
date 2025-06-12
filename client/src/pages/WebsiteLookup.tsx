@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { useToast } from "@/components/ui/use-toast";
+import { useToast } from "@/hooks/use-toast"; // Corrected import path
 import { WebsiteLookupResult } from "@shared/schema"; // Import from shared schema
 import { apiRequest } from "@/lib/queryClient"; // Assuming apiRequest is suitable
 
