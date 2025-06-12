@@ -35,3 +35,15 @@ export type EmailResult = z.infer<typeof emailResultSchema>;
 export const csvResultSchema = z.array(emailResultSchema);
 
 export type CSVResult = z.infer<typeof csvResultSchema>;
+
+// Website Lookup results schema
+export const websiteLookupResultSchema = z.object({
+  originalInput: z.string(),
+  foundWebsite: z.string().nullable(), // URL or null if not found
+  error: z.string().optional(),    // Optional error message
+});
+
+export type WebsiteLookupResult = z.infer<typeof websiteLookupResultSchema>;
+
+// Schema for an array of website lookup results (e.g. for API response)
+export const websiteLookupResultsListSchema = z.array(websiteLookupResultSchema);

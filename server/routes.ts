@@ -2,9 +2,11 @@ import type { Express, Request, Response } from "express"; // Added Request, Res
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { v4 as uuidv4 } from 'uuid'; // Added uuid
-import { urlInputSchema, emailResultSchema, csvResultSchema } from "@shared/schema";
+import { urlInputSchema, emailResultSchema, csvResultSchema, WebsiteLookupResult } from "@shared/schema"; // Added WebsiteLookupResult
 import { z } from "zod";
 import { scrapeEmails } from "./scraper";
+// Assuming global fetch is available (Node 18+)
+// import fetch from "node-fetch";
 
 // Job store for the two-step SSE pattern
 const jobStore = new Map<string, string[]>();
@@ -80,6 +82,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Zod schema for URL list input
   const urlListSchema = z.object({
     urls: z.array(z.string().url().or(z.string().refine(s => !s.startsWith('http'), { message: "Should be a valid hostname or URL" }))).min(1, "Please provide at least one URL")
+  });
+
+  // Zod schema for website lookup input
+  const websiteLookupInputSchema = z.object({
+    queries: z.array(z.string().min(3, "Query string must be at least 3 characters long")).min(1, "Please provide at least one query")
+  });
+
+// Helper function to extract a plausible domain from DuckDuckGo HTML
+// This is a very basic heuristic and might not be accurate.
+// Exported for testing purposes
+export const extractDomainFromHtml = (html: string, query: string): string | null => {
+    try {
+      // DuckDuckGo HTML results often have links like:
+      // <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.example.com&amp;rut=...">Example Domain</a>
+      // Or direct links in some cases. We need to be flexible.
+      // Let's prioritize result__a which seems common for organic results.
+      const linkRegex = /<a\s+[^>]*?class="(?:result__a|result__url)"\s+href="([^"]+)"[^>]*>(.*?)<\/a>/gi;
+      let match;
+      const MAX_LINKS_TO_CHECK = 5;
+      let linksChecked = 0;
+      let potentialDomains: { domain: string, text: string }[] = [];
+
+      while ((match = linkRegex.exec(html)) !== null && linksChecked < MAX_LINKS_TO_CHECK) {
+        linksChecked++;
+        let rawUrl = match[1];
+        const linkText = match[2].replace(/<[^>]+>/g, ''); // Strip HTML from link text
+
+        if (rawUrl.startsWith("/l/") || rawUrl.includes("duckduckgo.com/l/")) { // Handle DuckDuckGo redirect links
+          const uddgParam = rawUrl.match(/[?&]uddg=([^&]+)/);
+          if (uddgParam && uddgParam[1]) {
+            try {
+              rawUrl = decodeURIComponent(uddgParam[1]);
+            } catch (e) {
+              console.warn(`Failed to decode URL component: ${uddgParam[1]}`, e);
+              continue;
+            }
+          } else {
+            continue;
+          }
+        }
+
+        if (!rawUrl.startsWith("http")) {
+          if (rawUrl.startsWith("//")) {
+            rawUrl = "https:" + rawUrl;
+          } else if (rawUrl.startsWith("/")) {
+            continue;
+          } else {
+            rawUrl = "https://" + rawUrl;
+          }
+        }
+
+        try {
+          const urlObj = new URL(rawUrl);
+          const domain = urlObj.hostname.startsWith("www.") ? urlObj.hostname.substring(4) : urlObj.hostname;
+
+          const commonNonMainDomains = ["facebook.com", "twitter.com", "linkedin.com", "youtube.com", "instagram.com", "pinterest.com", "tiktok.com", "wikipedia.org", "amazon.com", "ebay.com"];
+          const fileExtensions = [".pdf", ".jpg", ".png", ".gif", ".zip", ".mp4", ".mp3"];
+          if (commonNonMainDomains.some(d => domain.includes(d)) || fileExtensions.some(ext => urlObj.pathname.endsWith(ext))) {
+            continue;
+          }
+          potentialDomains.push({ domain, text: linkText });
+        } catch (e) {
+          console.warn(`Invalid URL encountered during parsing: ${rawUrl}`, e);
+        }
+      }
+
+      if (potentialDomains.length > 0) {
+        const lowerQuery = query.toLowerCase();
+        potentialDomains.sort((a, b) => {
+          let scoreA = 0;
+          let scoreB = 0;
+          if (a.domain.includes(lowerQuery) || a.text.toLowerCase().includes(lowerQuery)) scoreA += 2;
+          if (b.domain.includes(lowerQuery) || b.text.toLowerCase().includes(lowerQuery)) scoreB += 2;
+          if (a.domain.startsWith(lowerQuery)) scoreA += 1;
+          if (b.domain.startsWith(lowerQuery)) scoreB += 1;
+          return scoreB - scoreA;
+        });
+        return potentialDomains[0].domain;
+      }
+
+    } catch (e) {
+      console.error("Error during HTML parsing for domain extraction:", e);
+    }
+    return null;
+  };
+
+  // POST /api/website-lookup
+  app.post("/api/website-lookup", async (req: Request, res: Response) => {
+    try {
+      const validationResult = websiteLookupInputSchema.safeParse(req.body);
+      if (!validationResult.success) {
+        return res.status(400).json({ message: "Invalid input", errors: validationResult.error.format() });
+      }
+
+      const { queries } = validationResult.data;
+      const results: WebsiteLookupResult[] = [];
+
+      for (const query of queries) {
+        let foundWebsite: string | null = null;
+        let errorMsg: string | undefined = undefined;
+
+        try {
+          const searchQuery = `${query} official site`;
+          const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(searchQuery)}`;
+
+          console.log(`Performing lookup for: "${query}" using URL: ${searchUrl}`);
+
+          const response = await fetch(searchUrl, { // Assuming global fetch
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8",
+            }
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text().catch(() => "No additional error text.");
+            console.error(`Search engine request failed for query "${query}" with status ${response.status}. Response: ${errorText.substring(0, 200)}`);
+            throw new Error(`Search engine request failed with status ${response.status} for query "${query}"`);
+          }
+
+          const html = await response.text();
+          foundWebsite = extractDomainFromHtml(html, query);
+
+          if (!foundWebsite) {
+             console.log(`No definitive website found for query: "${query}" from HTML content.`);
+          }
+
+        } catch (e: any) {
+          console.error(`Error looking up website for "${query}":`, e.message);
+          errorMsg = e.message || "Unknown error during lookup.";
+        }
+        results.push({ originalInput: query, foundWebsite: foundWebsite, error: errorMsg });
+      }
+      return res.status(200).json(results);
+
+    } catch (error) {
+      console.error("Critical Error in /api/website-lookup:", error);
+      return res.status(500).json({ message: "An unexpected server error occurred." });
+    }
   });
 
   // POST /api/initiate-scrape
