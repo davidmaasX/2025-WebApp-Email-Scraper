@@ -35,7 +35,7 @@ function NewWebsiteLookupPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 dark:bg-neutral-900">
       {/* Header is now in App.tsx */}
       <main className="container mx-auto px-4 py-8">
         <div className="flex flex-col lg:flex-row gap-8">

@@ -1,5 +1,6 @@
 import React from "react";
 import { Link, useRoute } from "wouter";
+import useTheme from '@/hooks/useTheme'; // Added import
 
 export function Header() {
   const baseStyle = "px-4 py-2 rounded-md text-sm font-medium transition-colors";
@@ -9,9 +10,10 @@ export function Header() {
   const [isCompanyLookupActive] = useRoute("/company-lookup");
   const [isWebsiteLookupActive] = useRoute("/website-lookup"); // Renamed from isEmailLookupActive
   const [isAddressLookupActive] = useRoute("/address-lookup");
+  const { theme, toggleTheme } = useTheme(); // Call the hook
 
   return (
-    <header className="mb-8 p-4 bg-slate-100 dark:bg-neutral-800 shadow-md">
+    <header className="p-4 bg-slate-100 dark:bg-neutral-800 shadow-md">
       <div className="container mx-auto flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-slate-900 dark:text-slate-100 mb-2">Beluga Lead Scraper</h1>
@@ -36,11 +38,11 @@ export function Header() {
             </li>
             <li className="ml-4"> {/* Added margin-left to separate from nav links */}
               <button
-                onClick={() => { /* Logic to be added in next step */ }}
+                onClick={toggleTheme} // Use toggleTheme function
                 className="p-2 rounded-full text-lg text-slate-700 hover:bg-slate-300 dark:text-slate-200 dark:hover:bg-slate-600"
                 aria-label="Toggle theme"
               >
-                ☀️ {/* Default to sun icon */}
+                {theme === 'dark' ? '☀️' : '🌙'} {/* Dynamic icon */}
               </button>
             </li>
           </ul>
