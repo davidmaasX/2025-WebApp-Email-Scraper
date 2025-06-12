@@ -4,7 +4,7 @@ import { ResultsSection } from "@/components/ResultsSection";
 import { useToast } from "@/hooks/use-toast"; // For setToast
 import { ProcessingStatus, EmailResult } from "@/lib/types"; // Ensure these types are available
 
-function LeadScraper() {
+function NewWebsiteLookupPage() {
   const [results, setResults] = useState<EmailResult[]>([]);
   const [processingStatus, setProcessingStatus] = useState<ProcessingStatus>({
     isProcessing: false,
@@ -52,4 +52,4 @@ function LeadScraper() {
   );
 }
 
-export default LeadScraper;
+export default NewWebsiteLookupPage;

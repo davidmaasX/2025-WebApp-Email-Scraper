@@ -7,7 +7,7 @@ import { useToast } from "@/hooks/use-toast"; // Corrected import path
 import { WebsiteLookupResult } from "@shared/schema"; // Import from shared schema
 import { apiRequest } from "@/lib/queryClient"; // Assuming apiRequest is suitable
 
-function WebsiteLookupPage() {
+function CompanyLookupPage() {
   const [addressInput, setAddressInput] = useState("");
   const [results, setResults] = useState<WebsiteLookupResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -227,4 +227,4 @@ OpenAI"
   );
 }
 
-export default WebsiteLookupPage;
+export default CompanyLookupPage;
