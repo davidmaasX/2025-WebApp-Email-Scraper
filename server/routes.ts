@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid'; // Added uuid
 import { urlInputSchema, emailResultSchema, csvResultSchema, WebsiteLookupResult } from "@shared/schema"; // Added WebsiteLookupResult
 import { z } from "zod";
 import { scrapeEmails } from "./scraper";
+import { extractDomainFromHtml } from "./utils"; // Import from utils.ts
 // Assuming global fetch is available (Node 18+)
 // import fetch from "node-fetch";
 
@@ -88,85 +89,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
   const websiteLookupInputSchema = z.object({
     queries: z.array(z.string().min(3, "Query string must be at least 3 characters long")).min(1, "Please provide at least one query")
   });
-
-// Helper function to extract a plausible domain from DuckDuckGo HTML
-// This is a very basic heuristic and might not be accurate.
-// Exported for testing purposes
-export const extractDomainFromHtml = (html: string, query: string): string | null => {
-    try {
-      // DuckDuckGo HTML results often have links like:
-      // <a class="result__a" href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fwww.example.com&amp;rut=...">Example Domain</a>
-      // Or direct links in some cases. We need to be flexible.
-      // Let's prioritize result__a which seems common for organic results.
-      const linkRegex = /<a\s+[^>]*?class="(?:result__a|result__url)"\s+href="([^"]+)"[^>]*>(.*?)<\/a>/gi;
-      let match;
-      const MAX_LINKS_TO_CHECK = 5;
-      let linksChecked = 0;
-      let potentialDomains: { domain: string, text: string }[] = [];
-
-      while ((match = linkRegex.exec(html)) !== null && linksChecked < MAX_LINKS_TO_CHECK) {
-        linksChecked++;
-        let rawUrl = match[1];
-        const linkText = match[2].replace(/<[^>]+>/g, ''); // Strip HTML from link text
-
-        if (rawUrl.startsWith("/l/") || rawUrl.includes("duckduckgo.com/l/")) { // Handle DuckDuckGo redirect links
-          const uddgParam = rawUrl.match(/[?&]uddg=([^&]+)/);
-          if (uddgParam && uddgParam[1]) {
-            try {
-              rawUrl = decodeURIComponent(uddgParam[1]);
-            } catch (e) {
-              console.warn(`Failed to decode URL component: ${uddgParam[1]}`, e);
-              continue;
-            }
-          } else {
-            continue;
-          }
-        }
-
-        if (!rawUrl.startsWith("http")) {
-          if (rawUrl.startsWith("//")) {
-            rawUrl = "https:" + rawUrl;
-          } else if (rawUrl.startsWith("/")) {
-            continue;
-          } else {
-            rawUrl = "https://" + rawUrl;
-          }
-        }
-
-        try {
-          const urlObj = new URL(rawUrl);
-          const domain = urlObj.hostname.startsWith("www.") ? urlObj.hostname.substring(4) : urlObj.hostname;
-
-          const commonNonMainDomains = ["facebook.com", "twitter.com", "linkedin.com", "youtube.com", "instagram.com", "pinterest.com", "tiktok.com", "wikipedia.org", "amazon.com", "ebay.com"];
-          const fileExtensions = [".pdf", ".jpg", ".png", ".gif", ".zip", ".mp4", ".mp3"];
-          if (commonNonMainDomains.some(d => domain.includes(d)) || fileExtensions.some(ext => urlObj.pathname.endsWith(ext))) {
-            continue;
-          }
-          potentialDomains.push({ domain, text: linkText });
-        } catch (e) {
-          console.warn(`Invalid URL encountered during parsing: ${rawUrl}`, e);
-        }
-      }
-
-      if (potentialDomains.length > 0) {
-        const lowerQuery = query.toLowerCase();
-        potentialDomains.sort((a, b) => {
-          let scoreA = 0;
-          let scoreB = 0;
-          if (a.domain.includes(lowerQuery) || a.text.toLowerCase().includes(lowerQuery)) scoreA += 2;
-          if (b.domain.includes(lowerQuery) || b.text.toLowerCase().includes(lowerQuery)) scoreB += 2;
-          if (a.domain.startsWith(lowerQuery)) scoreA += 1;
-          if (b.domain.startsWith(lowerQuery)) scoreB += 1;
-          return scoreB - scoreA;
-        });
-        return potentialDomains[0].domain;
-      }
-
-    } catch (e) {
-      console.error("Error during HTML parsing for domain extraction:", e);
-    }
-    return null;
-  };
 
   // POST /api/website-lookup
   app.post("/api/website-lookup", async (req: Request, res: Response) => {

@@ -1,4 +1,4 @@
-import { extractDomainFromHtml } from "../routes"; // Adjust path as necessary
+import { extractDomainFromHtml } from "../utils"; // Updated path to utils.ts
 import { Request, Response } from "express"; // For mocking req/res
 import { ZodError } from "zod"; // To check for Zod errors (optional)
 
@@ -109,17 +109,16 @@ let websiteLookupHandler: ((req: Request, res: Response) => Promise<void>) | und
 
 // This is a simplified way to get the handler. In reality, you might need to
 // import your app and access the router stack, or use supertest.
-jest.mock('../routes', () => {
-  const originalModule = jest.requireActual('../routes');
-  return {
-    ...originalModule,
-    // Mock registerRoutes to capture the app object or specific handlers if possible
-    // This part is highly dependent on how `server/routes.ts` is structured
-    // and if `app` can be spied upon or handlers extracted.
-    // For now, this mock won't effectively grab the handler.
-    // We will manually define the handler for testing based on its structure in routes.ts
-  };
-});
+// The jest.mock for '../routes' is no longer needed for extractDomainFromHtml,
+// but the test handler logic still manually defines the endpoint's behavior.
+// If routes.ts had other exports needed for testing, the mock might still be relevant.
+// For now, let's simplify or remove it if it's causing issues or not needed.
+// jest.mock('../routes', () => { // Keep if other things from routes are needed and need mocking
+//   const originalModule = jest.requireActual('../routes');
+//   return {
+//     ...originalModule,
+//   };
+// });
 
 
 // Manually define a test handler that mirrors the structure of the one in routes.ts
