@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { InputSection } from "@/components/InputSection";
 import { ResultsSection } from "@/components/ResultsSection";
-import { useToast } from "@/components/ui/use-toast"; // For setToast
+import { useToast } from "@/hooks/use-toast"; // For setToast
 import { ProcessingStatus, EmailResult } from "@/lib/types"; // Ensure these types are available
 
 function LeadScraper() {
